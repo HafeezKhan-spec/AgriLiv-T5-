@@ -1,0 +1,41 @@
+# Root gitignore for monorepo (frontend + backend)
+
+# Node.js
+node_modules/
+dist/
+.cache/
+npm-debug.log*
+yarn-error.log*
+
+# Vite/Tailwind
+.vite/
+.vite-deps/
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+
+# Uploads and generated assets
+uploads/
+public/uploads/
+
+# Logs
+logs/
+*.log
+
+# IDE/System
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
