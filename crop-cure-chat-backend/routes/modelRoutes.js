@@ -539,6 +539,64 @@ router.get('/details', optionalAuth, async (req, res) => {
   }
 });
 
+router.get('/sample-image', optionalAuth, async (req, res) => {
+  try {
+    const Upload = require('../models/Upload');
+    const { query, diseaseId, limit = 1 } = req.query;
+    const term = (query || diseaseId || '').toString().trim();
+    const lim = Math.max(1, Math.min(parseInt(limit) || 1, 10));
+    const conditions = [
+      { 'analysisResult.diseaseDetected': true },
+      { fileType: 'image' },
+      { processingStatus: 'completed' }
+    ];
+    if (term) {
+      conditions.push({ 'analysisResult.diseaseName': { $regex: term, $options: 'i' } });
+    }
+    const pubQuery = {
+      $and: conditions.concat([{ isPublic: true }])
+    };
+    let uploads = await Upload.find(pubQuery)
+      .sort({ createdAt: -1 })
+      .limit(lim)
+      .select('filename originalName analysisResult createdAt');
+    if (!uploads || uploads.length === 0 && req.user?._id) {
+      const ownQuery = {
+        $and: conditions.concat([{ userId: req.user._id }])
+      };
+      uploads = await Upload.find(ownQuery)
+        .sort({ createdAt: -1 })
+        .limit(lim)
+        .select('filename originalName analysisResult createdAt');
+    }
+    if (!uploads || uploads.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No sample images available for the requested query'
+      });
+    }
+    const items = uploads.map(u => ({
+      url: `/uploads/${u.filename}`,
+      filename: u.filename,
+      originalName: u.originalName,
+      diseaseName: u.analysisResult?.diseaseName || null,
+      confidence: u.analysisResult?.confidence || null,
+      createdAt: u.createdAt
+    }));
+    res.json({
+      success: true,
+      message: 'Sample image(s) retrieved successfully',
+      data: items
+    });
+  } catch (error) {
+    console.error('Get sample image error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while retrieving sample image'
+    });
+  }
+});
+
 // @route   GET /model/diseases
 // @desc    Get list of supported diseases
 // @access  Public

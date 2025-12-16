@@ -165,6 +165,52 @@ const modelServiceUrl = process.env.MODEL_SERVICE_URL || 'http://localhost:8001'
 
               await aiMessage.save();
               // early return since we already formed and saved the AI message for text
+              try {
+                const wantsImage = /\b(image|picture|photo)\b/i.test(content.text || '');
+                let termMatch = (content.text || '').match(/\b(?:of|about)\s+([a-zA-Z _-]{3,})/i);
+                let term = termMatch && termMatch[1] ? termMatch[1].trim() : '';
+                if (wantsImage) {
+                  let query = term || '';
+                  const sampleResp = await axios.get(`${process.env.API_BASE_URL || ''}/api/model/sample-image`, {
+                    params: { query, limit: 1 }
+                  }).catch(async () => {
+                    return await axios.get(`${modelServiceUrl.replace(/\/+$/, '')}/diseases`);
+                  });
+                  if (sampleResp?.data?.success && Array.isArray(sampleResp.data.data) && sampleResp.data.data.length > 0) {
+                    const item = sampleResp.data.data[0];
+                    const attachMessage = new Message({
+                      userId: req.user._id,
+                      sessionId: currentSessionId,
+                      messageType: 'ai',
+                      content: {
+                        text: 'Here is a sample image related to your request.',
+                        attachments: [{
+                          uploadId: null,
+                          filename: item.filename || '',
+                          originalName: item.originalName || '',
+                          mimeType: 'image/jpeg',
+                          fileSize: null,
+                          fileUrl: item.url
+                        }]
+                      },
+                      aiResponse: {
+                        model: 'agriclip-samples',
+                        confidence: 75,
+                        processingTime: 0
+                      },
+                      context: {
+                        previousMessageId: aiMessage._id,
+                        conversationTopic: context.conversationTopic || 'general'
+                      },
+                      metadata: {
+                        language: req.user.languagePref || 'en'
+                      },
+                      status: 'completed'
+                    });
+                    await attachMessage.save();
+                  }
+                }
+              } catch (_) {}
               return;
             } catch (err) {
               console.error('Best-of-two text generation error:', err?.response?.data || err.message);
