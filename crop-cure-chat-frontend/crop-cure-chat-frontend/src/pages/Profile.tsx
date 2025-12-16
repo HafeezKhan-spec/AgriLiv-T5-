@@ -45,13 +45,13 @@ const Profile = () => {
   const { t } = useLanguage();
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState({
-    name: localStorage.getItem("userName") || "John Farmer",
-    email: "john.farmer@example.com",
-    phone: "+1 (555) 123-4567",
-    location: "Iowa, United States",
-    bio: "Organic farmer with 15+ years of experience. Passionate about sustainable agriculture and crop health management.",
-    farmSize: "250 acres",
-    primaryCrops: "Corn, Soybeans, Wheat",
+    name: localStorage.getItem("userName") || "",
+    email: "",
+    phone: "",
+    location: "",
+    bio: "",
+    farmSize: "",
+    primaryCrops: "",
   });
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -87,7 +87,25 @@ const Profile = () => {
 
     const fetchStatsAndHistory = async () => {
       try {
-        // Fetch upload stats
+        const profileResp = await fetch('/api/user/profile', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (profileResp.ok) {
+          const profileJson = await profileResp.json();
+          if (profileJson.success && profileJson.data?.user) {
+            const u = profileJson.data.user;
+            const crops = Array.isArray(u?.farmDetails?.primaryCrops) ? u.farmDetails.primaryCrops.join(', ') : '';
+            setProfileData({
+              name: u?.username || localStorage.getItem("userName") || "",
+              email: u?.email || "",
+              phone: u?.phone || "",
+              location: u?.farmDetails?.location || "",
+              bio: u?.bio || "",
+              farmSize: u?.farmDetails?.farmSize || "",
+              primaryCrops: crops || ""
+            });
+          }
+        }
         const statsResp = await fetch('/api/upload/stats', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -196,13 +214,75 @@ const Profile = () => {
   };
 
   const handleSaveProfile = () => {
-    // Mock save - replace with actual API call
-    localStorage.setItem("userName", profileData.name);
-    setIsEditing(false);
-    toast({
-      title: t('toast.profileUpdated'),
-      description: t('toast.profileUpdatedDesc'),
-    });
+    const token = localStorage.getItem("authToken");
+    if (!token) return;
+    const payload: {
+      username: string;
+      email: string;
+      bio: string;
+      phone: string;
+      farmDetails: {
+        location: string;
+        farmSize: string;
+        primaryCrops: string[];
+      };
+    } = {
+      username: profileData.name,
+      email: profileData.email,
+      bio: profileData.bio,
+      phone: profileData.phone,
+      farmDetails: {
+        location: profileData.location,
+        farmSize: profileData.farmSize,
+        primaryCrops: profileData.primaryCrops
+          .split(',')
+          .map((c) => c.trim())
+          .filter((c) => c.length > 0)
+      }
+    };
+    fetch('/api/user/profile', {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+      .then(async (resp) => {
+        const json = await resp.json();
+        if (resp.ok && json.success && json.data?.user) {
+          const u = json.data.user;
+          localStorage.setItem("userName", u.username || profileData.name);
+          setProfileData((prev) => ({
+            ...prev,
+            name: u.username || prev.name,
+            email: u.email || prev.email,
+            phone: u.phone || prev.phone,
+            location: u?.farmDetails?.location || prev.location,
+            bio: u.bio || prev.bio,
+            farmSize: u?.farmDetails?.farmSize || prev.farmSize,
+            primaryCrops: Array.isArray(u?.farmDetails?.primaryCrops)
+              ? u.farmDetails.primaryCrops.join(', ')
+              : prev.primaryCrops
+          }));
+          setIsEditing(false);
+          toast({
+            title: t('toast.profileUpdated'),
+            description: t('toast.profileUpdatedDesc'),
+          });
+        } else {
+          toast({
+            title: t('toast.profileUpdated'),
+            description: json.message || t('toast.serverError'),
+          });
+        }
+      })
+      .catch(() => {
+        toast({
+          title: t('toast.profileUpdated'),
+          description: t('toast.serverError'),
+        });
+      });
   };
 
   const getStatusColor = (status?: string) => {
