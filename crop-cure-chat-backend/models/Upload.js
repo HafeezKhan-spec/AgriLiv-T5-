@@ -148,7 +148,7 @@ uploadSchema.statics.getRecentUploads = function(userId, limit = 10) {
 // Static method to get analysis statistics
 uploadSchema.statics.getAnalysisStats = function(userId) {
   return this.aggregate([
-    { $match: { userId: mongoose.Types.ObjectId(userId) } },
+    { $match: { userId: new mongoose.Types.ObjectId(userId) } },
     {
       $group: {
         _id: null,

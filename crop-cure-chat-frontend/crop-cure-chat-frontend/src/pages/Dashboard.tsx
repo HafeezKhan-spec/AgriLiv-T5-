@@ -596,6 +596,84 @@ const Dashboard = () => {
       return;
     }
 
+    // Handle Text-Only Queries (No pending image upload)
+    if (!pendingUploadId) {
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        type: 'user',
+        content: inputMessage,
+        timestamp: new Date(),
+      };
+      
+      setMessages(prev => [...prev, userMessage]);
+      setInputMessage('');
+      setIsTyping(true);
+      scrollToBottom();
+
+      try {
+        const response = await fetch('/api/model/text/query', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ 
+            text: userMessage.content,
+            sessionId: sessionId || undefined
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          // Update session ID if this is a new conversation or we didn't have one
+          if (data.data.sessionId && (!sessionId || sessionId !== data.data.sessionId)) {
+            setSessionId(data.data.sessionId);
+          }
+
+          const { type, domain, answer, imageQuery } = data.data;
+          
+          let attachments = undefined;
+          if (type === 'image' && imageQuery) {
+            // Use Pollinations.ai for instant image generation based on query
+            attachments = [{
+              name: `Image of ${imageQuery}`,
+              type: 'image/jpeg',
+              url: `https://image.pollinations.ai/prompt/${encodeURIComponent(imageQuery)}?width=640&height=480&nologo=true`
+            }];
+          }
+
+          const aiMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            type: 'ai',
+            content: answer,
+            timestamp: new Date(),
+            attachments: attachments,
+            domain: domain as any
+          };
+          
+          setMessages(prev => [...prev, aiMessage]);
+        } else {
+          toast({
+            title: "Error",
+            description: data.message || "Failed to get response",
+            variant: "destructive"
+          });
+        }
+      } catch (error) {
+        console.error('Text query error:', error);
+        toast({
+          title: "Error",
+          description: "Failed to connect to assistant.",
+          variant: "destructive"
+        });
+      } finally {
+        setIsTyping(false);
+        scrollToBottom();
+      }
+      return;
+    }
+
     // Create a temporary message to show immediately
     const userMessage: Message = {
       id: Date.now().toString(),

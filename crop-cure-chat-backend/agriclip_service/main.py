@@ -16,6 +16,8 @@ from torchvision import transforms
 from torchvision.models import efficientnet_b3, EfficientNet_B3_Weights
 from torchvision.models.detection import fasterrcnn_resnet50_fpn, FasterRCNN_ResNet50_FPN_Weights
 
+# Import the new text query service
+from text_query_service import router as text_query_router
 
 app = FastAPI(title="AgriCLIP Model Service", version="1.0.0")
 
@@ -26,6 +28,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include the text query router
+app.include_router(text_query_router)
 
 
 # Lazy-loaded models

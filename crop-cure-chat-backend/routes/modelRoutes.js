@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const Upload = require('../models/Upload');
 const Message = require('../models/Message');
 const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
+const { v4: uuidv4 } = require('uuid');
 
 const router = express.Router();
 
@@ -823,6 +824,102 @@ router.get('/diseases/:diseaseId', optionalAuth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error while retrieving disease details'
+    });
+  }
+});
+
+// @route   POST /model/text/query
+// @desc    Process text queries for plants, fruits, livestock, fish
+// @access  Private
+router.post('/text/query', authMiddleware, async (req, res) => {
+  try {
+    const { text, sessionId } = req.body;
+    if (!text) {
+      return res.status(400).json({ success: false, message: 'Text query is required' });
+    }
+
+    // Ensure we have a valid session ID
+    const currentSessionId = sessionId || uuidv4();
+
+    // 1. Save User Message
+    try {
+      const userMsg = new Message({
+        userId: req.user._id,
+        sessionId: currentSessionId,
+        messageType: 'user',
+        content: { text: text },
+        context: { conversationTopic: 'farming_advice' },
+        status: 'sent'
+      });
+      await userMsg.save();
+    } catch (saveError) {
+      console.warn('Failed to save user message:', saveError.message);
+      // Continue even if save fails, though this is not ideal
+    }
+
+    const axios = require('axios');
+    const modelServiceUrl = process.env.MODEL_SERVICE_URL || 'http://localhost:8001';
+
+    // 2. Forward to FastAPI
+    const response = await axios.post(`${modelServiceUrl}/text/query`, { text });
+    const responseData = response.data;
+
+    // 3. Save AI Message
+    try {
+      const aiContent = {
+        text: responseData.answer
+      };
+
+      // If it's an image response, construct the Pollinations URL and save as attachment
+      if (responseData.type === 'image' && responseData.imageQuery) {
+        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(responseData.imageQuery)}?width=640&height=480&nologo=true`;
+        aiContent.attachments = [{
+          originalName: `Image of ${responseData.imageQuery}`,
+          mimeType: 'image/jpeg',
+          fileUrl: imageUrl,
+          filename: `pollinations_${Date.now()}.jpg`, // Dummy filename
+          fileSize: 0 // Unknown size
+        }];
+      }
+
+      const aiMsg = new Message({
+        userId: req.user._id,
+        sessionId: currentSessionId,
+        messageType: 'ai',
+        content: aiContent,
+        aiResponse: {
+          model: 'flan-t5-small',
+          processingTime: 0 // We don't have this from the simple endpoint, could be added
+        },
+        context: {
+          conversationTopic: responseData.domain ? `${responseData.domain}_advice` : 'farming_advice'
+        },
+        status: 'completed'
+      });
+      await aiMsg.save();
+    } catch (saveError) {
+      console.warn('Failed to save AI message:', saveError.message);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...responseData,
+        sessionId: currentSessionId // Return session ID so frontend can sync
+      }
+    });
+
+  } catch (error) {
+    console.error('Text query error:', error.message);
+    if (error.response) {
+      return res.status(error.response.status).json({
+        success: false,
+        message: error.response.data.detail || 'Error processing query'
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      message: 'Server error processing text query'
     });
   }
 });
