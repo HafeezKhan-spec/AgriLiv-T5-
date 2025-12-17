@@ -193,7 +193,7 @@ messageSchema.statics.getUserSessions = function(userId, limit = 20) {
 // Static method to get chat statistics
 messageSchema.statics.getChatStats = function(userId) {
   return this.aggregate([
-    { $match: { userId: mongoose.Types.ObjectId(userId), isDeleted: false } },
+    { $match: { userId: new mongoose.Types.ObjectId(userId), isDeleted: false } },
     {
       $group: {
         _id: null,

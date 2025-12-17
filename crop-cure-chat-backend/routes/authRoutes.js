@@ -343,4 +343,135 @@ router.get('/verify', authMiddleware, async (req, res) => {
   }
 });
 
+// @route   POST /auth/forgot-password
+// @desc    Request OTP for password reset
+// @access  Public
+router.post('/forgot-password', [
+  body('email').isEmail().withMessage('Please enter a valid email address')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { email } = req.body;
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    // Security: Don't reveal if user exists, just say "If account exists, OTP sent"
+    // But for better UX in this specific request context, we'll return error if not found?
+    // User request: "Ask the user to enter their registered email address."
+    // Let's return success even if not found to prevent enumeration, but log it.
+    // Wait, typical "Forgot Password" UX often validates email existence for convenience unless high security.
+    // Given the previous endpoints reveal "Invalid credentials", I'll stick to revealing if user not found for UX.
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found with this email' });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresInMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES || '10', 10);
+    const expiresAt = new Date(Date.now() + expiresInMinutes * 60 * 1000);
+
+    await OtpCode.create({
+      userId: user._id,
+      email: user.email,
+      code: otp,
+      expiresAt,
+      used: false,
+      attempts: 0
+    });
+
+    try {
+      await sendOtpEmail(user.email, otp);
+    } catch (emailErr) {
+      console.error('Failed to send OTP email:', emailErr);
+      return res.status(500).json({ success: false, message: 'Failed to send OTP' });
+    }
+
+    res.json({ success: true, message: 'OTP sent to your email' });
+
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   POST /auth/verify-reset-otp
+// @desc    Verify OTP for password reset (Step 2)
+// @access  Public
+router.post('/verify-reset-otp', [
+  body('email').isEmail(),
+  body('code').isLength({ min: 6, max: 6 })
+], async (req, res) => {
+  try {
+    const { email, code } = req.body;
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) return res.status(400).json({ success: false, message: 'Invalid request' });
+
+    const otpRecord = await OtpCode.findOne({
+      userId: user._id,
+      email: user.email,
+      code,
+      used: false,
+      expiresAt: { $gt: new Date() }
+    }).sort({ createdAt: -1 });
+
+    if (!otpRecord) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+    }
+
+    // Do NOT mark as used yet, wait for password reset.
+    // Just confirm it's valid so UI can show password fields.
+    res.json({ success: true, message: 'OTP verified' });
+
+  } catch (error) {
+    console.error('Verify reset OTP error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   POST /auth/reset-password
+// @desc    Reset password with OTP
+// @access  Public
+router.post('/reset-password', [
+  body('email').isEmail(),
+  body('code').isLength({ min: 6, max: 6 }),
+  body('newPassword').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+    const { email, code, newPassword } = req.body;
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) return res.status(400).json({ success: false, message: 'Invalid request' });
+
+    const otpRecord = await OtpCode.findOne({
+      userId: user._id,
+      email: user.email,
+      code,
+      used: false,
+      expiresAt: { $gt: new Date() }
+    }).sort({ createdAt: -1 });
+
+    if (!otpRecord) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    // Mark OTP as used
+    otpRecord.used = true;
+    await otpRecord.save();
+
+    res.json({ success: true, message: 'Password reset successfully' });
+
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 module.exports = router;

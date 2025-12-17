@@ -137,6 +137,8 @@ router.put('/profile', [
       });
     }
 
+    const updateFields = {};
+
     // Check if username or email already exists (if being updated)
     if (username && username !== user.username) {
       const existingUser = await User.findOne({ username: username.toLowerCase() });
@@ -146,7 +148,7 @@ router.put('/profile', [
           message: 'Username already exists'
         });
       }
-      user.username = username.toLowerCase();
+      updateFields.username = username.toLowerCase();
     }
 
     if (email && email !== user.email) {
@@ -157,24 +159,28 @@ router.put('/profile', [
           message: 'Email already exists'
         });
       }
-      user.email = email.toLowerCase();
+      updateFields.email = email.toLowerCase();
     }
 
     // Update other fields
-    if (languagePref) user.languagePref = languagePref;
-    if (profilePic) user.profilePic = profilePic;
-    if (bio !== undefined) user.bio = bio;
-    if (phone !== undefined) user.phone = phone;
+    if (languagePref) updateFields.languagePref = languagePref;
+    if (profilePic) updateFields.profilePic = profilePic;
+    if (bio !== undefined) updateFields.bio = bio;
+    if (phone !== undefined) updateFields.phone = phone;
     
     if (farmDetails) {
-      if (farmDetails.farmSize !== undefined) user.farmDetails.farmSize = farmDetails.farmSize;
-      if (farmDetails.location !== undefined) user.farmDetails.location = farmDetails.location;
-      if (farmDetails.primaryCrops !== undefined) user.farmDetails.primaryCrops = farmDetails.primaryCrops;
+      if (farmDetails.farmSize !== undefined) updateFields['farmDetails.farmSize'] = farmDetails.farmSize;
+      if (farmDetails.location !== undefined) updateFields['farmDetails.location'] = farmDetails.location;
+      if (farmDetails.primaryCrops !== undefined) updateFields['farmDetails.primaryCrops'] = farmDetails.primaryCrops;
     }
 
-    await user.save();
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { $set: updateFields },
+      { new: true, runValidators: true }
+    );
 
-    const userData = user.getPublicProfile();
+    const userData = updatedUser.getPublicProfile();
 
     res.json({
       success: true,

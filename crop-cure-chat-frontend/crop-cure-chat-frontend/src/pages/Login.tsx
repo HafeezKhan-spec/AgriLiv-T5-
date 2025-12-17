@@ -139,7 +139,7 @@ const Login = () => {
                     to="/forgot-password"
                     className="text-sm text-primary hover:text-primary/80 transition-colors"
                   >
-                    {t('login.forgotPassword')}
+                    {t('login.forgotPassword') || "Forgot password?"}
                   </Link>
                 </div>
                 <div className="relative">
