@@ -48,7 +48,6 @@ const Navbar = () => {
     { name: t('nav.home'), href: "/" },
     { name: t('nav.dashboard'), href: "/dashboard", requiresAuth: true },
     { name: t('nav.profile'), href: "/profile", requiresAuth: true },
-    { name: "Chat", href: "/chat", requiresAuth: true },
   ];
 
   const filteredNavigation = navigation.filter(
