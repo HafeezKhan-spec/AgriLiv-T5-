@@ -64,7 +64,7 @@ const Navbar = () => {
               <Leaf className="h-6 w-6 text-white" />
             </div>
             <span className="text-xl font-bold gradient-text hidden sm:block">
-              AgriClip
+              AgriLiv-T5
             </span>
           </Link>
 

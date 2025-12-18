@@ -39,7 +39,7 @@ async function sendOtpEmail(to, code) {
   const textContent = `Your verification code is ${code}. It expires in ${expiry} minutes.`;
   const htmlContent = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-      <h2>AgriClip Verification</h2>
+      <h2>AgriLiv-T5 Verification</h2>
       <p>Your verification code is:</p>
       <div style="font-size: 24px; font-weight: bold; letter-spacing: 4px;">${code}</div>
       <p>This code will expire in <strong>${expiry} minutes</strong>.</p>
