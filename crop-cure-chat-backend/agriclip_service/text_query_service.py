@@ -8,7 +8,7 @@ import re
 router = APIRouter()
 
 # -------------------------------------------------
-# Global variables for lazy loading
+# Global variables
 # -------------------------------------------------
 tokenizer = None
 model = None
@@ -19,19 +19,15 @@ OUT_OF_SCOPE_MSG = (
 )
 
 # -------------------------------------------------
-# Load lightweight text model
+# Load model
 # -------------------------------------------------
 def load_text_model():
     global tokenizer, model
     if model is None:
         model_name = "google/flan-t5-small"
-        try:
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
-            model = AutoModelForSeq2SeqLM.from_pretrained(model_name).to(DEVICE)
-            model.eval()
-        except Exception as e:
-            print(f"Error loading model {model_name}: {e}")
-            raise HTTPException(status_code=500, detail="Failed to load text model")
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_name).to(DEVICE)
+        model.eval()
 
 # -------------------------------------------------
 # Schemas
@@ -46,25 +42,22 @@ class TextQueryResponse(BaseModel):
     imageQuery: Optional[str] = None
 
 # -------------------------------------------------
-# Domain keywords (expanded & safe)
+# Domain keywords
 # -------------------------------------------------
 DOMAIN_KEYWORDS = {
     "plant": [
-        "plant", "leaf", "crop", "tree", "flower", "root", "stem", "weed", "grass",
-        "vegetable", "wheat", "rice", "corn", "maize", "soybean", "cotton", "banana plant",
-        "apple plant", "tomato plant"
+        "plant", "leaf", "crop", "tree", "flower",
+        "banana plant", "tomato plant", "rice", "wheat", "cotton"
     ],
     "fruit": [
-        "fruit", "apple", "banana", "mango", "citrus", "berry", "grape", "melon",
-        "papaya", "orange", "lemon"
+        "fruit", "banana", "apple", "mango", "orange", "grapes"
     ],
     "livestock": [
-        "livestock", "cow", "cattle", "sheep", "goat", "pig", "animal", "farm",
-        "chicken", "poultry", "duck", "buffalo"
+        "cow", "goat", "sheep", "horse", "hen", "chicken",
+        "lion", "tiger", "animal"
     ],
     "fish": [
-        "fish", "salmon", "trout", "aquaculture", "pond", "shrimp",
-        "seafood", "tilapia", "carp"
+        "fish", "tilapia", "carp", "shrimp", "pond", "aquaculture"
     ]
 }
 
@@ -72,25 +65,14 @@ DOMAIN_KEYWORDS = {
 # Helpers
 # -------------------------------------------------
 def detect_domain(text: str) -> Optional[str]:
-    text_lower = text.lower()
-    for domain, keywords in DOMAIN_KEYWORDS.items():
-        for k in keywords:
-            if re.search(rf"\b{k}s?\b", text_lower):
+    for domain, words in DOMAIN_KEYWORDS.items():
+        for w in words:
+            if re.search(rf"\b{w}\b", text.lower()):
                 return domain
     return None
 
 def detect_image_intent(text: str) -> bool:
-    pattern = r"(show|give|display|get|need|want).*(image|photo|picture|pic)|(image|photo|picture|pic)\s+of"
-    return bool(re.search(pattern, text.lower()))
-
-def clean_image_query(text: str) -> str:
-    q = re.sub(
-        r"(show|give|display|get|need|want)|(image|photo|picture|pic)|(of)",
-        "",
-        text.lower()
-    )
-    q = re.sub(r"[^\w\s]", "", q).strip()
-    return q or text
+    return bool(re.search(r"(image|photo|picture|pic)", text.lower()))
 
 # -------------------------------------------------
 # Route
@@ -103,7 +85,6 @@ async def text_query(request: TextQueryRequest):
     if not text:
         raise HTTPException(status_code=400, detail="Empty query")
 
-    # 1. Domain detection
     domain = detect_domain(text)
     if not domain:
         return TextQueryResponse(
@@ -112,66 +93,67 @@ async def text_query(request: TextQueryRequest):
             answer=OUT_OF_SCOPE_MSG
         )
 
-    # 2. Image intent
+    # Image intent
     if detect_image_intent(text):
-        image_query = clean_image_query(text)
         return TextQueryResponse(
             type="image",
             domain=domain,
-            imageQuery=image_query,
-            answer=f"This image shows an example related to '{image_query}' in the {domain} domain."
+            imageQuery=text,
+            answer=f"This image is related to {text} in the {domain} domain."
         )
 
-    # 3. Specialist Text QA
-    try:
-        prompt = f"""
-You are an agricultural domain specialist.
+    # ---------------- IMPROVED PROMPT ----------------
+    prompt = f"""
+You are an agricultural and veterinary domain specialist.
 
-You have expert knowledge ONLY in:
-- Plants (banana plant, apple plant, crops, plant diseases, care)
-- Fruits (fruit diseases, growth, prevention)
-- Livestock (cow, goat, poultry health and care)
-- Fish (aquaculture, fish diseases, pond management)
+You have expertise in:
+- Plants and crops
+- Fruits
+- Livestock and poultry
+- Fish and aquaculture
 
 Domain: {domain}
 
-Answer as a SPECIALIST.
-
 Rules:
-- Explain causes and symptoms if relevant
-- Suggest prevention and general care methods
-- Use simple, farmer-friendly language
-- Do NOT give exact chemical names, dosages, or medical prescriptions
-- Prefer natural methods and best practices
-- Do NOT mention AI, models, or technical terms
+- Clearly explain prevention methods
+- You MAY suggest commonly used pesticides, bio-pesticides, fungicides,
+  insecticides, or treatments
+- Do NOT mention dosage, concentration, or brand names
+- Prefer organic, bio, and traditional methods first
+- Use simple farmer-friendly language
+- Avoid technical and AI terms
 
-Answer in 4 sections:
+Answer format:
 Causes:
 Symptoms:
 Prevention:
-General care or treatment:
+Recommended treatments or pesticides:
+General care tips:
 
 Question:
 {text}
 """
+
+    try:
         inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
 
         outputs = model.generate(
             **inputs,
-            max_length=240,
-            num_beams=4,
-            early_stopping=True,
+            max_length=300,
+            num_beams=5,
             no_repeat_ngram_size=2
         )
 
         answer = tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
-        if not answer or len(answer) < 10:
+        if len(answer) < 20:
             answer = (
-                "Causes: Environmental stress or nutrient imbalance.\n"
-                "Symptoms: Yellowing, spots, or reduced growth.\n"
-                "Prevention: Maintain hygiene, proper nutrition, and good water management.\n"
-                "General care or treatment: Remove affected parts and consult a local specialist if the issue continues."
+                "Causes: Pest attack or environmental stress.\n"
+                "Symptoms: Damage to leaves, slow growth, or disease signs.\n"
+                "Prevention: Crop rotation, field sanitation, and regular monitoring.\n"
+                "Recommended treatments or pesticides: Neem-based products, bio-pesticides, "
+                "commonly used insecticides or fungicides as advised locally.\n"
+                "General care tips: Maintain soil health and consult an agriculture officer if needed."
             )
 
         return TextQueryResponse(
@@ -181,9 +163,9 @@ Question:
         )
 
     except Exception as e:
-        print(f"Text generation error: {e}")
+        print(e)
         return TextQueryResponse(
             type="text",
             domain=domain,
-            answer="Sorry, I encountered an issue while answering your question."
+            answer="Unable to process your question at the moment."
         )
